@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>{{ title }} - Water Pump Controller</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, {{ theme.primary_color }} 0%, {{ theme.secondary_color }} 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+        
+        .clock-container {
+            background: rgba(255,255,255,0.2);
+            border-radius: 15px;
+            padding: 15px;
+            margin-top: 20px;
+            display: inline-block;
+        }
+        
+        .clock {
+            font-size: 2em;
+            font-weight: bold;
+            font-family: monospace;
+        }
+        
+        .date {
+            font-size: 0.8em;
+            opacity: 0.9;
+            margin-top: 5px;
+        }
+        
+        .system-info {
+            background: rgba(255,255,255,0.2);
+            border-radius: 10px;
+            padding: 10px;
+            margin-top: 15px;
+            display: inline-block;
+            font-size: 0.9em;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        
+        .card h2 {
+            color: #333;
+            margin-bottom: 20px;
+            border-bottom: 2px solid {{ theme.primary_color }};
+            padding-bottom: 10px;
+        }
+        
+        .pump-status {
+            text-align: center;
+            margin-bottom: 20px;
+            padding: 20px;
+            background: #f5f5f5;
+            border-radius: 10px;
+        }
+        
+        .status-text {
+            font-size: 1.5em;
+            font-weight: bold;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-left: 10px;
+        }
+        
+        .status-indicator.on {
+            background: #4CAF50;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-indicator.off {
+            background: #f44336;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.7; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+        
+        button {
+            padding: 12px 30px;
+            font-size: 16px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: transform 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+        }
+        
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .btn-on {
+            background: #4CAF50;
+            color: white;
+        }
+        
+        .btn-off {
+            background: #f44336;
+            color: white;
+        }
+        
+        .btn-add {
+            background: {{ theme.primary_color }};
+            color: white;
+            margin-top: 10px;
+        }
+        
+        .schedule-form {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .form-group label {
+            font-weight: bold;
+            color: #555;
+        }
+        
+        input, select {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        
+        /* Style for time input */
+        .time-input-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .time-input {
+            flex: 1;
+            font-family: monospace;
+            font-size: 16px;
+            text-align: center;
+        }
+        
+        .time-preview {
+            font-family: monospace;
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .schedule-list {
+            margin-top: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .schedule-item {
+            background: #f5f5f5;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s;
+        }
+        
+        .schedule-item.disabled {
+            opacity: 0.5;
+            background: #e0e0e0;
+        }
+        
+        .schedule-info {
+            flex-grow: 1;
+        }
+        
+        .schedule-time {
+            font-weight: bold;
+            color: {{ theme.primary_color }};
+            font-size: 1.1em;
+        }
+        
+        .schedule-duration {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 3px;
+        }
+        
+        .schedule-days {
+            color: #888;
+            font-size: 0.85em;
+            margin-top: 3px;
+        }
+        
+        .schedule-next {
+            color: #4CAF50;
+            font-size: 0.8em;
+            margin-top: 5px;
+        }
+        
+        .schedule-actions {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .btn-toggle {
+            background: #ff9800;
+            color: white;
+            padding: 5px 12px;
+            font-size: 12px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+        }
+        
+        .btn-toggle:hover {
+            background: #e68900;
+        }
+        
+        .btn-delete {
+            background: #f44336;
+            color: white;
+            padding: 5px 12px;
+            font-size: 12px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+        }
+        
+        .btn-delete:hover {
+            background: #d32f2f;
+        }
+        
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+        }
+        
+        .stat {
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: {{ theme.primary_color }};
+        }
+        
+        .stat-label {
+            font-size: 0.8em;
+            color: #666;
+            margin-top: 5px;
+        }
+        
+        .next-run {
+            text-align: center;
+            margin-top: 15px;
+            padding: 10px;
+            background: #e3f2fd;
+            border-radius: 8px;
+            font-size: 0.9em;
+        }
+        
+        .level-indicator {
+            margin-top: 15px;
+            padding: 10px;
+            background: #e9ecef;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .level-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 15px;
+            font-weight: bold;
+        }
+        
+        .level-empty { background: #dc3545; color: white; }
+        .level-low { background: #ffc107; color: #333; }
+        .level-high { background: #28a745; color: white; }
+        .level-filling { background: #17a2b8; color: white; }
+        
+        .alert {
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            display: none;
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            min-width: 300px;
+        }
+        
+        .alert.success {
+            background: #d4edda;
+            color: #155724;
+            display: block;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .alert.error {
+            background: #f8d7da;
+            color: #721c24;
+            display: block;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .empty-state {
+            text-align: center;
+            color: #999;
+            padding: 40px;
+        }
+        
+        @media (max-width: 768px) {
+            .grid { grid-template-columns: 1fr; }
+            .clock { font-size: 1.5em; }
+            .schedule-item { flex-direction: column; gap: 10px; }
+            .schedule-actions { width: 100%; justify-content: center; }
+            .alert { position: static; margin-bottom: 15px; min-width: auto; }
+        }
+        
+        .duration-help {
+            font-size: 0.8em;
+            color: #666;
+            margin-top: 5px;
+        }
+        
+        .time-note {
+            font-size: 0.7em;
+            color: #999;
+            margin-top: 2px;
+        }
+        
+        .example-time {
+            font-family: monospace;
+            background: #f0f0f0;
+            padding: 2px 5px;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>💧 {{ title }}</h1>
+            <p>{{ description }}</p>
+            
+            <div class="clock-container">
+                <div class="clock" id="clock">--:--:--</div>
+                <div class="date" id="date">Loading...</div>
+            </div>
+            
+            <div class="system-info">
+                🖥️ {{ system_info.hostname }} | 
+                🌡️ CPU: {{ system_info.cpu_temp }}°C | 
+                💾 RAM: {{ system_info.ram_usage }}%
+            </div>
+        </div>
+        
+        <div id="alert" class="alert"></div>
+        
+        <div class="grid">
+            <!-- Manual Control Card -->
+            <div class="card">
+                <h2>🎮 Manual Control</h2>
+                <div class="pump-status">
+                    <span class="status-text" id="statusText">
+                        {% if pump_status.running %}
+                            🟢 Pump is ON
+                        {% else %}
+                            🔴 Pump is OFF
+                        {% endif %}
+                    </span>
+                    <span id="statusIndicator" class="status-indicator {% if pump_status.running %}on{% else %}off{% endif %}"></span>
+                </div>
+                
+                <div class="level-indicator">
+                    💧 Water Level: <span id="waterLevel" class="level-badge">Unknown</span>
+                </div>
+                
+                <div class="button-group">
+                    <button class="btn-on" onclick="controlPump('on')">💧 Turn ON</button>
+                    <button class="btn-off" onclick="controlPump('off')">⛔ Turn OFF</button>
+                </div>
+                
+                <div class="stats">
+                    <div class="stat">
+                        <div class="stat-value" id="wateringToday">0</div>
+                        <div class="stat-label">Watering Today</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value" id="wateringWeek">0</div>
+                        <div class="stat-label">Watering This Week</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value" id="scheduleCount">{{ schedules|length }}</div>
+                        <div class="stat-label">Active Schedules</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Schedule Card -->
+            <div class="card">
+                <h2>⏰ Add Schedule</h2>
+                <div class="schedule-form">
+                    <div class="form-group">
+                        <label>Time (24-hour format)</label>
+                        <input type="text" id="scheduleTime" class="time-input" 
+                               placeholder="14:30" value="08:00" maxlength="5"
+                               pattern="[0-9]{2}:[0-9]{2}" autocomplete="off">
+                        <div class="time-note">
+                            Enter time in 24-hour format: <span class="example-time">00:00</span> to <span class="example-time">23:59</span><br>
+                            Examples: 08:00 (8 AM), 14:00 (2 PM), 20:30 (8:30 PM)
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Duration (minutes)</label>
+                        <select id="scheduleDurationMinutes">
+                            <option value="1">1 minute (TEST - runs immediately)</option>
+                            <option value="5">5 minutes</option>
+                            <option value="15">15 minutes</option>
+                            <option value="30" selected>30 minutes</option>
+                            <option value="45">45 minutes</option>
+                            <option value="60">1 hour (60 minutes)</option>
+                            <option value="90">1.5 hours (90 minutes)</option>
+                            <option value="120">2 hours (120 minutes)</option>
+                            <option value="180">3 hours (180 minutes)</option>
+                            <option value="240">4 hours (240 minutes)</option>
+                            <option value="300">5 hours (300 minutes)</option>
+                            <option value="360">6 hours (360 minutes)</option>
+                        </select>
+                        <div class="duration-help">How long the pump will run when schedule triggers</div>
+                    </div>
+                    <div class="form-group">
+                        <label>Days</label>
+                        <select id="scheduleDays">
+                            <option value="daily">Every Day</option>
+                            <option value="weekdays">Weekdays (Mon-Fri)</option>
+                            <option value="weekend">Weekend (Sat-Sun)</option>
+                            <option value="monday">Monday Only</option>
+                            <option value="tuesday">Tuesday Only</option>
+                            <option value="wednesday">Wednesday Only</option>
+                            <option value="thursday">Thursday Only</option>
+                            <option value="friday">Friday Only</option>
+                            <option value="saturday">Saturday Only</option>
+                            <option value="sunday">Sunday Only</option>
+                        </select>
+                    </div>
+                    <button class="btn-add" onclick="addSchedule()">➕ Add Schedule</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Schedules List -->
+        <div class="card">
+            <h2>📅 Active Schedules</h2>
+            <div id="schedulesList">
+                {% if schedules %}
+                    {% for schedule_id, schedule in schedules.items() %}
+                    <div class="schedule-item {% if not schedule.enabled %}disabled{% endif %}" data-schedule-id="{{ schedule_id }}">
+                        <div class="schedule-info">
+                            <div class="schedule-time">
+                                ⏰ {{ "%02d:%02d"|format(schedule.hour, schedule.minute) }} (24h)
+                                {% if not schedule.enabled %} <span style="color: #999;">(Disabled)</span>{% endif %}
+                            </div>
+                            <div class="schedule-duration">💧 Duration: {{ (schedule.duration / 60)|int }} minutes</div>
+                            <div class="schedule-days">
+                                📅 
+                                {% if schedule.days == 'daily' %}
+                                    Every day
+                                {% elif schedule.days is iterable and schedule.days is not string %}
+                                    {% set day_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] %}
+                                    {% for day in schedule.days %}
+                                        {{ day_names[day] }}{% if not loop.last %}, {% endif %}
+                                    {% endfor %}
+                                {% else %}
+                                    {{ schedule.days }}
+                                {% endif %}
+                            </div>
+                            {% if schedule.next_run_time %}
+                            <div class="schedule-next" data-next="{{ schedule.next_run_time }}">⏭️ Next: <span class="next-ts">{{ schedule.next_run_time }}</span></div>
+                            {% endif %}
+                        </div>
+                        <div class="schedule-actions">
+                            {% if schedule.enabled %}
+                            <button class="btn-toggle" onclick="toggleSchedule('{{ schedule_id }}', false)">⏸️ Disable</button>
+                            {% else %}
+                            <button class="btn-toggle" onclick="toggleSchedule('{{ schedule_id }}', true)">▶️ Enable</button>
+                            {% endif %}
+                            <button class="btn-delete" onclick="deleteSchedule('{{ schedule_id }}')">🗑️ Delete</button>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="empty-state">🌱 No schedules configured yet</div>
+                {% endif %}
+            </div>
+            
+            <div id="nextRun" class="next-run">
+                {% if next_run %}
+                    ⏰ Next scheduled watering: {{ next_run }}
+                {% else %}
+                    📅 No upcoming schedules
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Format time input as user types
+        var timeInput = document.getElementById('scheduleTime');
+        if (timeInput) {
+            timeInput.addEventListener('input', function(e) {
+                var value = e.target.value.replace(/[^0-9]/g, '');
+                if (value.length >= 2) {
+                    var hours = value.substring(0, 2);
+                    if (parseInt(hours) > 23) hours = '23';
+                    if (value.length >= 3) {
+                        var minutes = value.substring(2, 4);
+                        if (parseInt(minutes) > 59) minutes = '59';
+                        e.target.value = hours + ':' + minutes;
+                    } else {
+                        e.target.value = hours;
+                    }
+                }
+            });
+        }
+        
+        // Clock function - 24-hour format
+        function updateClock() {
+            var now = new Date();
+            var hours = String(now.getHours()).padStart(2, '0');
+            var minutes = String(now.getMinutes()).padStart(2, '0');
+            var seconds = String(now.getSeconds()).padStart(2, '0');
+            var timeString = hours + ':' + minutes + ':' + seconds;
+            
+            var options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+            var dateString = now.toLocaleDateString(undefined, options);
+            
+            var clockEl = document.getElementById('clock');
+            var dateEl = document.getElementById('date');
+            if (clockEl) clockEl.textContent = timeString;
+            if (dateEl) dateEl.textContent = dateString;
+        }
+        
+        setInterval(updateClock, 1000);
+        updateClock();
+        
+        // Update status function
+        function updatePumpStatus() {
+            fetch('/api/status')
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
+                    if (data.success) {
+                        var isRunning = data.pump_status.running;
+                        var statusText = document.getElementById('statusText');
+                        var statusIndicator = document.getElementById('statusIndicator');
+                        var waterLevelSpan = document.getElementById('waterLevel');
+                        
+                        if (isRunning) {
+                            statusText.innerHTML = '🟢 Pump is ON';
+                            statusIndicator.className = 'status-indicator on';
+                        } else {
+                            statusText.innerHTML = '🔴 Pump is OFF';
+                            statusIndicator.className = 'status-indicator off';
+                        }
+                        
+                        if (waterLevelSpan && data.pump_status.water_level) {
+                            var level = data.pump_status.water_level;
+                            waterLevelSpan.innerHTML = level;
+                            
+                            waterLevelSpan.className = 'level-badge';
+                            if (level.indexOf('EMPTY') >= 0 || level.indexOf('Empty') >= 0) {
+                                waterLevelSpan.classList.add('level-empty');
+                            } else if (level.indexOf('LOW') >= 0 || level.indexOf('Low') >= 0) {
+                                waterLevelSpan.classList.add('level-low');
+                            } else if (level.indexOf('HIGH') >= 0 || level.indexOf('High') >= 0) {
+                                waterLevelSpan.classList.add('level-high');
+                            } else if (level.indexOf('FILLING') >= 0) {
+                                waterLevelSpan.classList.add('level-filling');
+                            }
+                        }
+                        
+                        var scheduleCount = document.getElementById('scheduleCount');
+                        if (scheduleCount && data.schedules) {
+                            scheduleCount.textContent = Object.keys(data.schedules).length;
+                        }
+                        
+                        var nextRunDiv = document.getElementById('nextRun');
+                        if (nextRunDiv) {
+                            if (data.next_run) {
+                                // Parse server UTC timestamp and convert to client's local time
+                                try {
+                                    var d = new Date(data.next_run + 'Z');
+                                    nextRunDiv.innerHTML = '⏰ Next scheduled watering: ' + formatLocal(d);
+                                } catch (e) {
+                                    nextRunDiv.innerHTML = '⏰ Next scheduled watering: ' + data.next_run;
+                                }
+                            } else {
+                                nextRunDiv.innerHTML = '📅 No upcoming schedules';
+                            }
+                        }
+
+                        // Convert per-schedule next run times shown on page (server time -> local)
+                        var scheduleNextEls = document.querySelectorAll('.schedule-next');
+                        scheduleNextEls.forEach(function(el) {
+                            var serverTs = el.getAttribute('data-next');
+                            if (serverTs) {
+                                try {
+                                    var dt = new Date(serverTs + 'Z');
+                                    var span = el.querySelector('.next-ts');
+                                    if (span) span.textContent = formatLocal(dt);
+                                } catch (e) {
+                                    // ignore if parse fails
+                                }
+                            }
+                        });
+                    }
+                })
+                .catch(function(error) {
+                    console.error('Error:', error);
+                });
+        }
+        
+        // Control pump function
+        function controlPump(action) {
+            fetch('/api/pump/' + action, { method: 'POST' })
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
+                    if (data.success) {
+                        showAlert('Pump turned ' + action + ' successfully!', 'success');
+                        updatePumpStatus();
+                    } else {
+                        showAlert('Error: ' + data.error, 'error');
+                    }
+                })
+                .catch(function(error) {
+                    showAlert('Failed to control pump: ' + error.message, 'error');
+                });
+        }
+        
+        // Validate 24-hour time format
+        function validateTime(timeStr) {
+            var pattern = /^([0-1][0-9]|2[0-3]):([0-5][0-9])$/;
+            return pattern.test(timeStr);
+        }
+        
+        // Add schedule function
+        function addSchedule() {
+            var time = document.getElementById('scheduleTime').value;
+            var durationMinutes = parseInt(document.getElementById('scheduleDurationMinutes').value);
+            var daysOption = document.getElementById('scheduleDays').value;
+            
+            if (!time) {
+                showAlert('Please enter a time', 'error');
+                return;
+            }
+            
+            // Validate 24-hour format
+            if (!validateTime(time)) {
+                showAlert('Invalid time format! Please use 24-hour format (e.g., 08:00, 14:30, 23:59)', 'error');
+                return;
+            }
+            
+            var durationSeconds = durationMinutes * 60;
+            
+            // Convert client-local time to UTC for server scheduling
+            var parts = time.split(':');
+            var localHour = parseInt(parts[0]);
+            var localMinute = parseInt(parts[1]);
+            var now = new Date();
+            now.setHours(localHour, localMinute, 0, 0);
+            var utcHour = now.getUTCHours();
+            var utcMinute = now.getUTCMinutes();
+            var hour = utcHour;
+            var minute = utcMinute;
+            
+            var days = null;
+            switch(daysOption) {
+                case 'weekdays': days = [0,1,2,3,4]; break;
+                case 'weekend': days = [5,6]; break;
+                case 'monday': days = [0]; break;
+                case 'tuesday': days = [1]; break;
+                case 'wednesday': days = [2]; break;
+                case 'thursday': days = [3]; break;
+                case 'friday': days = [4]; break;
+                case 'saturday': days = [5]; break;
+                case 'sunday': days = [6]; break;
+                default: days = null;
+            }
+            
+            showAlert('Adding schedule for ' + time + ' (24h)...', 'success');
+            
+            fetch('/api/schedule', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    hour: hour, 
+                    minute: minute, 
+                    duration: durationSeconds, 
+                    days: days 
+                })
+            })
+            .then(function(response) { return response.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    showAlert('Schedule added! Pump will run for ' + durationMinutes + ' minutes at ' + time + ' (24h)', 'success');
+                    setTimeout(function() { location.reload(); }, 1000);
+                } else {
+                    showAlert('Error: ' + data.error, 'error');
+                }
+            })
+            .catch(function(error) {
+                showAlert('Failed to add schedule: ' + error.message, 'error');
+            });
+        }
+        
+        // Delete schedule function
+        function deleteSchedule(scheduleId) {
+            if (!confirm('Are you sure you want to delete this schedule?')) return;
+            
+            showAlert('Deleting schedule...', 'success');
+            
+            fetch('/api/schedule/' + scheduleId, { method: 'DELETE' })
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
+                    if (data.success) {
+                        showAlert('Schedule deleted successfully!', 'success');
+                        setTimeout(function() { location.reload(); }, 1000);
+                    } else {
+                        showAlert('Error: ' + data.error, 'error');
+                    }
+                })
+                .catch(function(error) {
+                    showAlert('Failed to delete schedule: ' + error.message, 'error');
+                });
+        }
+        
+        // Toggle schedule function
+        function toggleSchedule(scheduleId, enable) {
+            var button = event.target;
+            var action = enable ? 'enable' : 'disable';
+            
+            button.disabled = true;
+            var originalText = button.innerHTML;
+            button.innerHTML = '...';
+            
+            fetch('/api/schedule/' + scheduleId + '/toggle', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: enable })
+            })
+            .then(function(response) { 
+                if (!response.ok) {
+                    throw new Error('HTTP error ' + response.status);
+                }
+                return response.json();
+            })
+            .then(function(data) {
+                if (data.success) {
+                    showAlert('Schedule ' + (enable ? 'enabled' : 'disabled') + ' successfully!', 'success');
+                    setTimeout(function() { location.reload(); }, 500);
+                } else {
+                    showAlert('Error: ' + data.error, 'error');
+                    button.disabled = false;
+                    button.innerHTML = originalText;
+                }
+            })
+            .catch(function(error) {
+                console.error('Toggle error:', error);
+                showAlert('Failed to ' + action + ' schedule: ' + error.message, 'error');
+                button.disabled = false;
+                button.innerHTML = originalText;
+            });
+        }
+        
+        // Show alert function
+        function showAlert(message, type) {
+            var alertDiv = document.getElementById('alert');
+            alertDiv.textContent = message;
+            alertDiv.className = 'alert ' + type;
+            setTimeout(function() {
+                alertDiv.className = 'alert';
+            }, 3000);
+        }
+        
+        // Refresh every 5 seconds
+        setInterval(updatePumpStatus, 5000);
+        updatePumpStatus();
+
+        // Helper: format Date to YYYY-MM-DD HH:MM:SS
+        function formatLocal(dateObj) {
+            var yyyy = dateObj.getFullYear();
+            var mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+            var dd = String(dateObj.getDate()).padStart(2, '0');
+            var hh = String(dateObj.getHours()).padStart(2, '0');
+            var min = String(dateObj.getMinutes()).padStart(2, '0');
+            var ss = String(dateObj.getSeconds()).padStart(2, '0');
+            return yyyy + '-' + mm + '-' + dd + ' ' + hh + ':' + min + ':' + ss;
+        }
+    </script>
+</body>
+</html>
