@@ -2,3 +2,4 @@
 ## Features
 * pump schedule setting
 * manual pump on/off
+* locale clock
