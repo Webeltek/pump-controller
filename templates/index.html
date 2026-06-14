@@ -59,6 +59,12 @@
             margin-top: 5px;
         }
         
+        .timezone-note {
+            font-size: 0.7em;
+            opacity: 0.7;
+            margin-top: 5px;
+        }
+        
         .system-info {
             background: rgba(255,255,255,0.2);
             border-radius: 10px;
@@ -192,24 +198,10 @@
             font-size: 14px;
         }
         
-        /* Style for time input */
-        .time-input-wrapper {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        
         .time-input {
-            flex: 1;
             font-family: monospace;
             font-size: 16px;
             text-align: center;
-        }
-        
-        .time-preview {
-            font-family: monospace;
-            font-size: 14px;
-            color: #666;
         }
         
         .schedule-list {
@@ -289,10 +281,6 @@
             cursor: pointer;
             border: none;
             border-radius: 5px;
-        }
-        
-        .btn-delete:hover {
-            background: #d32f2f;
         }
         
         .stats {
@@ -388,16 +376,10 @@
             .alert { position: static; margin-bottom: 15px; min-width: auto; }
         }
         
-        .duration-help {
+        .duration-help, .time-note {
             font-size: 0.8em;
             color: #666;
             margin-top: 5px;
-        }
-        
-        .time-note {
-            font-size: 0.7em;
-            color: #999;
-            margin-top: 2px;
         }
         
         .example-time {
@@ -417,6 +399,7 @@
             <div class="clock-container">
                 <div class="clock" id="clock">--:--:--</div>
                 <div class="date" id="date">Loading...</div>
+                <div class="timezone-note" id="timezone"></div>
             </div>
             
             <div class="system-info">
@@ -473,32 +456,33 @@
                 <h2>⏰ Add Schedule</h2>
                 <div class="schedule-form">
                     <div class="form-group">
-                        <label>Time (24-hour format)</label>
+                        <label>Time (Local 24-hour)</label>
                         <input type="text" id="scheduleTime" class="time-input" 
                                placeholder="14:30" value="08:00" maxlength="5"
                                pattern="[0-9]{2}:[0-9]{2}" autocomplete="off">
                         <div class="time-note">
-                            Enter time in 24-hour format: <span class="example-time">00:00</span> to <span class="example-time">23:59</span><br>
-                            Examples: 08:00 (8 AM), 14:00 (2 PM), 20:30 (8:30 PM)
+                            Enter your LOCAL time (24-hour format)<br>
+                            Examples: <span class="example-time">08:00</span> (8 AM), 
+                            <span class="example-time">14:00</span> (2 PM), 
+                            <span class="example-time">20:30</span> (8:30 PM)
                         </div>
                     </div>
                     <div class="form-group">
                         <label>Duration (minutes)</label>
                         <select id="scheduleDurationMinutes">
-                            <option value="1">1 minute (TEST - runs immediately)</option>
+                            <option value="1">1 minute (TEST)</option>
                             <option value="5">5 minutes</option>
                             <option value="15">15 minutes</option>
                             <option value="30" selected>30 minutes</option>
                             <option value="45">45 minutes</option>
-                            <option value="60">1 hour (60 minutes)</option>
-                            <option value="90">1.5 hours (90 minutes)</option>
-                            <option value="120">2 hours (120 minutes)</option>
-                            <option value="180">3 hours (180 minutes)</option>
-                            <option value="240">4 hours (240 minutes)</option>
-                            <option value="300">5 hours (300 minutes)</option>
-                            <option value="360">6 hours (360 minutes)</option>
+                            <option value="60">1 hour</option>
+                            <option value="90">1.5 hours</option>
+                            <option value="120">2 hours</option>
+                            <option value="180">3 hours</option>
+                            <option value="240">4 hours</option>
+                            <option value="300">5 hours</option>
+                            <option value="360">6 hours</option>
                         </select>
-                        <div class="duration-help">How long the pump will run when schedule triggers</div>
                     </div>
                     <div class="form-group">
                         <label>Days</label>
@@ -528,9 +512,8 @@
                     {% for schedule_id, schedule in schedules.items() %}
                     <div class="schedule-item {% if not schedule.enabled %}disabled{% endif %}" data-schedule-id="{{ schedule_id }}">
                         <div class="schedule-info">
-                            <div class="schedule-time">
-                                ⏰ {{ "%02d:%02d"|format(schedule.hour, schedule.minute) }} (24h)
-                                {% if not schedule.enabled %} <span style="color: #999;">(Disabled)</span>{% endif %}
+                            <div class="schedule-time" id="schedule-time-{{ schedule_id }}">
+                                ⏰ Loading...
                             </div>
                             <div class="schedule-duration">💧 Duration: {{ (schedule.duration / 60)|int }} minutes</div>
                             <div class="schedule-days">
@@ -546,9 +529,9 @@
                                     {{ schedule.days }}
                                 {% endif %}
                             </div>
-                            {% if schedule.next_run_time %}
-                            <div class="schedule-next" data-next="{{ schedule.next_run_time }}">⏭️ Next: <span class="next-ts">{{ schedule.next_run_time }}</span></div>
-                            {% endif %}
+                            <div class="schedule-next" id="next-run-{{ schedule_id }}">
+                                Loading...
+                            </div>
                         </div>
                         <div class="schedule-actions">
                             {% if schedule.enabled %}
@@ -567,7 +550,7 @@
             
             <div id="nextRun" class="next-run">
                 {% if next_run %}
-                    ⏰ Next scheduled watering: {{ next_run }}
+                    ⏰ Loading...
                 {% else %}
                     📅 No upcoming schedules
                 {% endif %}
@@ -576,26 +559,69 @@
     </div>
     
     <script>
-        // Format time input as user types
-        var timeInput = document.getElementById('scheduleTime');
-        if (timeInput) {
-            timeInput.addEventListener('input', function(e) {
-                var value = e.target.value.replace(/[^0-9]/g, '');
-                if (value.length >= 2) {
-                    var hours = value.substring(0, 2);
-                    if (parseInt(hours) > 23) hours = '23';
-                    if (value.length >= 3) {
-                        var minutes = value.substring(2, 4);
-                        if (parseInt(minutes) > 59) minutes = '59';
-                        e.target.value = hours + ':' + minutes;
-                    } else {
-                        e.target.value = hours;
-                    }
-                }
-            });
+        // ============================================================
+        // TIMEZONE CONVERSION FUNCTIONS
+        // All backend times are in UTC
+        // All frontend times are in LOCAL
+        // ============================================================
+        
+        // Get user's local timezone offset in minutes
+        function getUserTimezoneOffset() {
+            return new Date().getTimezoneOffset();
         }
         
-        // Clock function - 24-hour format
+        // Convert LOCAL time (hour, minute) to UTC hour/minute for backend
+        function localToUtcTime(localHour, localMinute) {
+            // Create a date object for today at the specified local time
+            var now = new Date();
+            var localDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), localHour, localMinute);
+            
+            // Get UTC components
+            var utcHour = localDate.getUTCHours();
+            var utcMinute = localDate.getUTCMinutes();
+            
+            console.log(`Converting LOCAL ${localHour.toString().padStart(2,'0')}:${localMinute.toString().padStart(2,'0')} → UTC ${utcHour.toString().padStart(2,'0')}:${utcMinute.toString().padStart(2,'0')}`);
+            
+            return { hour: utcHour, minute: utcMinute };
+        }
+        
+        // Convert UTC time (hour, minute) to LOCAL time for display
+        function utcToLocalTime(utcHour, utcMinute) {
+            // Create a date object for today at the specified UTC time
+            var now = new Date();
+            var utcDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), utcHour, utcMinute));
+            
+            // Get local components
+            var localHour = utcDate.getHours();
+            var localMinute = utcDate.getMinutes();
+            
+            return { hour: localHour, minute: localMinute };
+        }
+        
+        // Format time for display (HH:MM in local time)
+        function formatLocalTime(hour, minute) {
+            return String(hour).padStart(2, '0') + ':' + String(minute).padStart(2, '0');
+        }
+        
+        // Convert UTC timestamp string to local display string
+        function utcToLocalDisplay(utcTimeString) {
+            if (!utcTimeString) return 'Unknown';
+            var date = new Date(utcTimeString + 'Z');  // Treat as UTC
+            return date.toLocaleString();
+        }
+        
+        // Display user's timezone
+        function displayUserTimezone() {
+            var timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            var offset = -getUserTimezoneOffset() / 60;
+            var offsetStr = offset >= 0 ? `UTC+${offset}` : `UTC${offset}`;
+            document.getElementById('timezone').innerHTML = `🕐 Your timezone: ${timezone} (${offsetStr})`;
+        }
+        
+        // ============================================================
+        // CLOCK (shows local time from browser)
+        // ============================================================
+        
         function updateClock() {
             var now = new Date();
             var hours = String(now.getHours()).padStart(2, '0');
@@ -606,21 +632,24 @@
             var options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
             var dateString = now.toLocaleDateString(undefined, options);
             
-            var clockEl = document.getElementById('clock');
-            var dateEl = document.getElementById('date');
-            if (clockEl) clockEl.textContent = timeString;
-            if (dateEl) dateEl.textContent = dateString;
+            document.getElementById('clock').textContent = timeString;
+            document.getElementById('date').textContent = dateString;
         }
         
         setInterval(updateClock, 1000);
         updateClock();
+        displayUserTimezone();
         
-        // Update status function
+        // ============================================================
+        // UPDATE PUMP STATUS (converts UTC from backend to local)
+        // ============================================================
+        
         function updatePumpStatus() {
             fetch('/api/status')
                 .then(function(response) { return response.json(); })
                 .then(function(data) {
                     if (data.success) {
+                        // Update pump status
                         var isRunning = data.pump_status.running;
                         var statusText = document.getElementById('statusText');
                         var statusIndicator = document.getElementById('statusIndicator');
@@ -635,55 +664,47 @@
                         }
                         
                         if (waterLevelSpan && data.pump_status.water_level) {
-                            var level = data.pump_status.water_level;
-                            waterLevelSpan.innerHTML = level;
-                            
-                            waterLevelSpan.className = 'level-badge';
-                            if (level.indexOf('EMPTY') >= 0 || level.indexOf('Empty') >= 0) {
-                                waterLevelSpan.classList.add('level-empty');
-                            } else if (level.indexOf('LOW') >= 0 || level.indexOf('Low') >= 0) {
-                                waterLevelSpan.classList.add('level-low');
-                            } else if (level.indexOf('HIGH') >= 0 || level.indexOf('High') >= 0) {
-                                waterLevelSpan.classList.add('level-high');
-                            } else if (level.indexOf('FILLING') >= 0) {
-                                waterLevelSpan.classList.add('level-filling');
+                            waterLevelSpan.innerHTML = data.pump_status.water_level;
+                        }
+                        
+                        // Update schedules display (convert UTC times to local)
+                        if (data.schedules) {
+                            for (var scheduleId in data.schedules) {
+                                var schedule = data.schedules[scheduleId];
+                                
+                                // Convert schedule time from UTC to LOCAL for display
+                                var localTime = utcToLocalTime(schedule.hour, schedule.minute);
+                                var timeElement = document.getElementById('schedule-time-' + scheduleId);
+                                if (timeElement) {
+                                    timeElement.innerHTML = '⏰ ' + formatLocalTime(localTime.hour, localTime.minute) + ' (local)';
+                                    if (!schedule.enabled) {
+                                        timeElement.innerHTML += ' <span style="color: #999;">(Disabled)</span>';
+                                    }
+                                }
+                                
+                                // Convert next run time from UTC to LOCAL
+                                var nextRunElement = document.getElementById('next-run-' + scheduleId);
+                                if (nextRunElement && schedule.next_run_time) {
+                                    nextRunElement.innerHTML = '⏭️ Next: ' + utcToLocalDisplay(schedule.next_run_time);
+                                }
                             }
                         }
                         
-                        var scheduleCount = document.getElementById('scheduleCount');
-                        if (scheduleCount && data.schedules) {
-                            scheduleCount.textContent = Object.keys(data.schedules).length;
-                        }
-                        
+                        // Update main next run display
                         var nextRunDiv = document.getElementById('nextRun');
                         if (nextRunDiv) {
                             if (data.next_run) {
-                                // Parse server UTC timestamp and convert to client's local time
-                                try {
-                                    var d = new Date(data.next_run + 'Z');
-                                    nextRunDiv.innerHTML = '⏰ Next scheduled watering: ' + formatLocal(d);
-                                } catch (e) {
-                                    nextRunDiv.innerHTML = '⏰ Next scheduled watering: ' + data.next_run;
-                                }
+                                nextRunDiv.innerHTML = '⏰ Next scheduled watering: ' + utcToLocalDisplay(data.next_run);
                             } else {
                                 nextRunDiv.innerHTML = '📅 No upcoming schedules';
                             }
                         }
-
-                        // Convert per-schedule next run times shown on page (server time -> local)
-                        var scheduleNextEls = document.querySelectorAll('.schedule-next');
-                        scheduleNextEls.forEach(function(el) {
-                            var serverTs = el.getAttribute('data-next');
-                            if (serverTs) {
-                                try {
-                                    var dt = new Date(serverTs + 'Z');
-                                    var span = el.querySelector('.next-ts');
-                                    if (span) span.textContent = formatLocal(dt);
-                                } catch (e) {
-                                    // ignore if parse fails
-                                }
-                            }
-                        });
+                        
+                        // Update schedule count
+                        var scheduleCount = document.getElementById('scheduleCount');
+                        if (scheduleCount && data.schedules) {
+                            scheduleCount.textContent = Object.keys(data.schedules).length;
+                        }
                     }
                 })
                 .catch(function(error) {
@@ -691,7 +712,10 @@
                 });
         }
         
-        // Control pump function
+        // ============================================================
+        // CONTROL PUMP (no time conversion needed)
+        // ============================================================
+        
         function controlPump(action) {
             fetch('/api/pump/' + action, { method: 'POST' })
                 .then(function(response) { return response.json(); })
@@ -708,41 +732,38 @@
                 });
         }
         
-        // Validate 24-hour time format
-        function validateTime(timeStr) {
+        // ============================================================
+        // ADD SCHEDULE (converts LOCAL time to UTC before sending)
+        // ============================================================
+        
+        function validateLocalTime(timeStr) {
             var pattern = /^([0-1][0-9]|2[0-3]):([0-5][0-9])$/;
             return pattern.test(timeStr);
         }
         
-        // Add schedule function
         function addSchedule() {
-            var time = document.getElementById('scheduleTime').value;
+            var localTimeStr = document.getElementById('scheduleTime').value;
             var durationMinutes = parseInt(document.getElementById('scheduleDurationMinutes').value);
             var daysOption = document.getElementById('scheduleDays').value;
             
-            if (!time) {
+            if (!localTimeStr) {
                 showAlert('Please enter a time', 'error');
                 return;
             }
             
-            // Validate 24-hour format
-            if (!validateTime(time)) {
-                showAlert('Invalid time format! Please use 24-hour format (e.g., 08:00, 14:30, 23:59)', 'error');
+            // Validate local time format (24-hour)
+            if (!validateLocalTime(localTimeStr)) {
+                showAlert('Invalid time! Please use 24-hour format (e.g., 08:00, 14:30, 23:59)', 'error');
                 return;
             }
             
-            var durationSeconds = durationMinutes * 60;
+            var localHour = parseInt(localTimeStr.split(':')[0]);
+            var localMinute = parseInt(localTimeStr.split(':')[1]);
             
-            // Convert client-local time to UTC for server scheduling
-            var parts = time.split(':');
-            var localHour = parseInt(parts[0]);
-            var localMinute = parseInt(parts[1]);
-            var now = new Date();
-            now.setHours(localHour, localMinute, 0, 0);
-            var utcHour = now.getUTCHours();
-            var utcMinute = now.getUTCMinutes();
-            var hour = utcHour;
-            var minute = utcMinute;
+            // CONVERT LOCAL TIME TO UTC for backend storage
+            var utcTime = localToUtcTime(localHour, localMinute);
+            
+            var durationSeconds = durationMinutes * 60;
             
             var days = null;
             switch(daysOption) {
@@ -758,14 +779,15 @@
                 default: days = null;
             }
             
-            showAlert('Adding schedule for ' + time + ' (24h)...', 'success');
+            showAlert('Adding schedule: LOCAL ' + formatLocalTime(localHour, localMinute) + 
+                     ' → UTC ' + formatLocalTime(utcTime.hour, utcTime.minute), 'success');
             
             fetch('/api/schedule', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
-                    hour: hour, 
-                    minute: minute, 
+                    hour: utcTime.hour,      // Send UTC to backend
+                    minute: utcTime.minute,  // Send UTC to backend
                     duration: durationSeconds, 
                     days: days 
                 })
@@ -773,7 +795,7 @@
             .then(function(response) { return response.json(); })
             .then(function(data) {
                 if (data.success) {
-                    showAlert('Schedule added! Pump will run for ' + durationMinutes + ' minutes at ' + time + ' (24h)', 'success');
+                    showAlert('Schedule added! Watering at ' + formatLocalTime(localHour, localMinute) + ' your local time', 'success');
                     setTimeout(function() { location.reload(); }, 1000);
                 } else {
                     showAlert('Error: ' + data.error, 'error');
@@ -784,7 +806,10 @@
             });
         }
         
-        // Delete schedule function
+        // ============================================================
+        // DELETE SCHEDULE
+        // ============================================================
+        
         function deleteSchedule(scheduleId) {
             if (!confirm('Are you sure you want to delete this schedule?')) return;
             
@@ -805,7 +830,10 @@
                 });
         }
         
-        // Toggle schedule function
+        // ============================================================
+        // TOGGLE SCHEDULE
+        // ============================================================
+        
         function toggleSchedule(scheduleId, enable) {
             var button = event.target;
             var action = enable ? 'enable' : 'disable';
@@ -843,7 +871,10 @@
             });
         }
         
-        // Show alert function
+        // ============================================================
+        // ALERT FUNCTION
+        // ============================================================
+        
         function showAlert(message, type) {
             var alertDiv = document.getElementById('alert');
             alertDiv.textContent = message;
@@ -853,19 +884,27 @@
             }, 3000);
         }
         
-        // Refresh every 5 seconds
+        // Initialize - refresh every 5 seconds
         setInterval(updatePumpStatus, 5000);
         updatePumpStatus();
-
-        // Helper: format Date to YYYY-MM-DD HH:MM:SS
-        function formatLocal(dateObj) {
-            var yyyy = dateObj.getFullYear();
-            var mm = String(dateObj.getMonth() + 1).padStart(2, '0');
-            var dd = String(dateObj.getDate()).padStart(2, '0');
-            var hh = String(dateObj.getHours()).padStart(2, '0');
-            var min = String(dateObj.getMinutes()).padStart(2, '0');
-            var ss = String(dateObj.getSeconds()).padStart(2, '0');
-            return yyyy + '-' + mm + '-' + dd + ' ' + hh + ':' + min + ':' + ss;
+        
+        // Format time input as user types
+        var timeInput = document.getElementById('scheduleTime');
+        if (timeInput) {
+            timeInput.addEventListener('input', function(e) {
+                var value = e.target.value.replace(/[^0-9]/g, '');
+                if (value.length >= 2) {
+                    var hours = value.substring(0, 2);
+                    if (parseInt(hours) > 23) hours = '23';
+                    if (value.length >= 3) {
+                        var minutes = value.substring(2, 4);
+                        if (parseInt(minutes) > 59) minutes = '59';
+                        e.target.value = hours + ':' + minutes;
+                    } else {
+                        e.target.value = hours;
+                    }
+                }
+            });
         }
     </script>
 </body>
