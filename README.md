@@ -3,3 +3,4 @@
 * pump schedule setting
 * manual pump on/off
 * locale setting
+* increment setting
