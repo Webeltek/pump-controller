@@ -12,9 +12,8 @@ from database import db, WateringSchedule
 logger = logging.getLogger(__name__)
 
 class PumpScheduler:
-    def __init__(self, pump_controller, app=None):
+    def __init__(self, pump_controller):
         self.pump = pump_controller
-        self.app = app  # Store Flask app instance
         
         # Get system timezone
         try:
@@ -38,49 +37,45 @@ class PumpScheduler:
         logger.info("LOADING SCHEDULES FROM DATABASE")
         logger.info("="*50)
         
-        # Need app context to access database
-        if not self.app:
-            logger.warning("No app context available, cannot load schedules from DB")
-            return 0
-        
         try:
-            with self.app.app_context():
-                db_schedules = WateringSchedule.query.all()
-                logger.info(f"Database query returned {len(db_schedules)} schedules")
+            # Simply try to query - if table doesn't exist, it will fail and we catch it
+            db_schedules = WateringSchedule.query.all()
+            logger.info(f"Database query returned {len(db_schedules)} schedules")
+            
+            if len(db_schedules) == 0:
+                logger.info("No schedules found in database")
+                return 0
+            
+            for db_schedule in db_schedules:
+                logger.info(f"Found schedule in DB: ID={db_schedule.id}, hour={db_schedule.hour}, minute={db_schedule.minute}, duration={db_schedule.duration_seconds}, enabled={db_schedule.enabled}")
                 
-                if len(db_schedules) == 0:
-                    logger.info("No schedules found in database")
-                    return 0
+                # Parse days
+                days = db_schedule.days
+                if days != 'daily' and days:
+                    try:
+                        import json
+                        days = json.loads(days)
+                    except:
+                        days = None
+                else:
+                    days = None if days == 'daily' else days
                 
-                for db_schedule in db_schedules:
-                    logger.info(f"Found schedule in DB: ID={db_schedule.id}, hour={db_schedule.hour}, minute={db_schedule.minute}, duration={db_schedule.duration_seconds}, enabled={db_schedule.enabled}")
-                    
-                    # Parse days
-                    days = db_schedule.days
-                    if days != 'daily' and days:
-                        try:
-                            import json
-                            days = json.loads(days)
-                        except:
-                            days = None
-                    else:
-                        days = None if days == 'daily' else days
-                    
-                    # Add to scheduler
-                    self._add_schedule_from_db(
-                        schedule_id=db_schedule.id,
-                        hour=db_schedule.hour,
-                        minute=db_schedule.minute,
-                        duration_seconds=db_schedule.duration_seconds,
-                        days=days,
-                        enabled=db_schedule.enabled
-                    )
-                
-                logger.info(f"Successfully loaded {len(db_schedules)} schedules from database")
-                return len(db_schedules)
-                
+                # Add to scheduler
+                self._add_schedule_from_db(
+                    schedule_id=db_schedule.id,
+                    hour=db_schedule.hour,
+                    minute=db_schedule.minute,
+                    duration_seconds=db_schedule.duration_seconds,
+                    days=days,
+                    enabled=db_schedule.enabled
+                )
+            
+            logger.info(f"Successfully loaded {len(db_schedules)} schedules from database")
+            return len(db_schedules)
+            
         except Exception as e:
             logger.error(f"Error loading schedules from DB: {e}")
+            logger.error(f"This may mean the database table doesn't exist yet. Create a schedule first.")
             return 0
     
     def _add_schedule_from_db(self, schedule_id, hour, minute, duration_seconds, days=None, enabled=True):
@@ -161,27 +156,23 @@ class PumpScheduler:
             'next_run_time': job.next_run_time
         }
         
-        # Save to database - need app context
-        if self.app:
-            try:
-                with self.app.app_context():
-                    days_for_db = days_display if days_display == 'daily' else __import__('json').dumps(days_display)
-                    new_schedule = WateringSchedule(
-                        id=schedule_id,
-                        hour=hour,
-                        minute=minute,
-                        duration_seconds=duration_seconds,
-                        days=days_for_db,
-                        enabled=True
-                    )
-                    db.session.add(new_schedule)
-                    db.session.commit()
-                    logger.info(f"Schedule {schedule_id} SUCCESSFULLY saved to database")
-            except Exception as e:
-                logger.error(f"Error saving schedule to DB: {e}")
-                db.session.rollback()
-        else:
-            logger.warning("No app context, schedule not saved to database")
+        # Save to database
+        try:
+            days_for_db = days_display if days_display == 'daily' else __import__('json').dumps(days_display)
+            new_schedule = WateringSchedule(
+                id=schedule_id,
+                hour=hour,
+                minute=minute,
+                duration_seconds=duration_seconds,
+                days=days_for_db,
+                enabled=True
+            )
+            db.session.add(new_schedule)
+            db.session.commit()
+            logger.info(f"Schedule {schedule_id} SUCCESSFULLY saved to database")
+        except Exception as e:
+            logger.error(f"Error saving schedule to DB: {e}")
+            db.session.rollback()
         
         logger.info(f"Schedule {schedule_id}: Water at {hour:02d}:{minute:02d} for {duration_seconds}s")
         return schedule_id
@@ -211,18 +202,16 @@ class PumpScheduler:
         if schedule_id in self.schedules:
             del self.schedules[schedule_id]
         
-        # Remove from database - need app context
-        if self.app:
-            try:
-                with self.app.app_context():
-                    schedule = WateringSchedule.query.get(schedule_id)
-                    if schedule:
-                        db.session.delete(schedule)
-                        db.session.commit()
-                        logger.info(f"Schedule {schedule_id} deleted from database")
-            except Exception as e:
-                logger.error(f"Error deleting schedule from DB: {e}")
-                db.session.rollback()
+        # Remove from database
+        try:
+            schedule = WateringSchedule.query.get(schedule_id)
+            if schedule:
+                db.session.delete(schedule)
+                db.session.commit()
+                logger.info(f"Schedule {schedule_id} deleted from database")
+        except Exception as e:
+            logger.error(f"Error deleting schedule from DB: {e}")
+            db.session.rollback()
         
         logger.info(f"Schedule {schedule_id} removed")
     
@@ -239,18 +228,16 @@ class PumpScheduler:
         
         self.schedules[schedule_id]['enabled'] = enabled
         
-        # Update database - need app context
-        if self.app:
-            try:
-                with self.app.app_context():
-                    schedule = WateringSchedule.query.get(schedule_id)
-                    if schedule:
-                        schedule.enabled = enabled
-                        db.session.commit()
-                        logger.info(f"Schedule {schedule_id} {'enabled' if enabled else 'disabled'} in database")
-            except Exception as e:
-                logger.error(f"Error updating schedule in DB: {e}")
-                db.session.rollback()
+        # Update database
+        try:
+            schedule = WateringSchedule.query.get(schedule_id)
+            if schedule:
+                schedule.enabled = enabled
+                db.session.commit()
+                logger.info(f"Schedule {schedule_id} {'enabled' if enabled else 'disabled'} in database")
+        except Exception as e:
+            logger.error(f"Error updating schedule in DB: {e}")
+            db.session.rollback()
         
         logger.info(f"Schedule {schedule_id} {'enabled' if enabled else 'disabled'}")
     
