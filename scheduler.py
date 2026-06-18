@@ -30,6 +30,8 @@ class PumpScheduler:
             
         self.scheduler = BackgroundScheduler(timezone=self.local_tz)
         self.schedules = {}
+        self.running_schedule_id = None
+        self.last_trigger_check = None
         logger.info(f"Scheduler initialized with timezone: {self.local_tz}")
     
     def load_schedules_from_db(self):
@@ -103,7 +105,7 @@ class PumpScheduler:
                 func=self._watering_job,
                 trigger=trigger,
                 id=schedule_id,
-                args=[duration_seconds],
+                args=[duration_seconds, schedule_id],
                 replace_existing=True
             )
         
@@ -148,7 +150,7 @@ class PumpScheduler:
             func=self._watering_job,
             trigger=trigger,
             id=schedule_id,
-            args=[duration_seconds],
+            args=[duration_seconds, schedule_id],
             replace_existing=True
         )
         
@@ -186,30 +188,117 @@ class PumpScheduler:
         logger.info(f"Schedule {schedule_id}: Water at {hour:02d}:{minute:02d} for {duration_seconds}s")
         return schedule_id
     
-    def _watering_job(self, duration_seconds):
+    def _watering_job(self, duration_seconds, schedule_id):
         """Run a scheduled watering job using LOW (on) / HIGH (off) states"""
-        logger.info(f"SCHEDULE START: Watering for {duration_seconds} seconds")
+        logger.info(f"SCHEDULE START: Watering for {duration_seconds} seconds (Schedule: {schedule_id})")
         
-        # Start filling (pump on)
-        self.pump.set_low()
-        logger.info(f"Pump started - Water level set to LOW")
+        # Track which schedule is running
+        self.running_schedule_id = schedule_id
         
-        # Run for specified duration
-        time.sleep(duration_seconds)
+        try:
+            # Start filling (pump on)
+            self.pump.set_low()
+            logger.info(f"Pump started - Water level set to LOW (Schedule: {schedule_id})")
+            
+            # Run for specified duration
+            time.sleep(duration_seconds)
+            
+            # Stop filling (pump off)
+            self.pump.set_high()
+            logger.info(f"SCHEDULE COMPLETE: Watering finished - Pump stopped (HIGH) (Schedule: {schedule_id})")
+            
+        except Exception as e:
+            logger.error(f"Error during watering job {schedule_id}: {e}")
+            # Ensure pump stops on error
+            self.pump.set_high()
+            logger.info(f"Pump stopped due to error (Schedule: {schedule_id})")
+        finally:
+            # Clear running schedule
+            self.running_schedule_id = None
+    
+    def _stop_pump_if_running(self, schedule_id=None):
+        """Emergency stop pump if it's running"""
+        # Check if the pump is currently running (level is LOW)
+        status = self.pump.get_status()
+        is_pump_running = status.get('pump_should_run', False)
         
-        # Stop filling (pump off)
-        self.pump.set_high()
-        logger.info(f"SCHEDULE COMPLETE: Watering finished - Pump stopped (HIGH)")
+        if is_pump_running:
+            logger.warning(f"STOPPING PUMP because schedule {schedule_id} is being removed/disabled")
+            self.pump.set_high()
+            self.running_schedule_id = None
+            logger.info("Pump stopped - Level set to HIGH")
+            return True
+        else:
+            logger.info(f"No pump running to stop (schedule {schedule_id})")
+            return False
+    
+    def _check_and_start_schedule(self, schedule_id):
+        """Check if schedule should be running NOW and start if needed"""
+        if schedule_id not in self.schedules:
+            logger.warning(f"Schedule {schedule_id} not found")
+            return False
+        
+        schedule = self.schedules[schedule_id]
+        if not schedule['enabled']:
+            logger.info(f"Schedule {schedule_id} is disabled, not starting")
+            return False
+        
+        # Check if pump is already running
+        status = self.pump.get_status()
+        if status.get('pump_should_run', False):
+            logger.info(f"Pump already running, not starting schedule {schedule_id}")
+            return False
+        
+        # Get current time in local timezone
+        now = datetime.now(self.local_tz)
+        current_hour = now.hour
+        current_minute = now.minute
+        
+        # Check if current time matches schedule time
+        schedule_hour = schedule['hour']
+        schedule_minute = schedule['minute']
+        
+        # Check if we should run (time matches and not already running)
+        if current_hour == schedule_hour and current_minute == schedule_minute:
+            logger.info(f"Schedule {schedule_id} should be running NOW! Starting pump...")
+            duration = schedule['duration']
+            
+            # Start the pump in a background thread so it doesn't block
+            import threading
+            def start_schedule_immediately():
+                logger.info(f"Starting immediate watering for schedule {schedule_id} ({duration}s)")
+                self._watering_job(duration, schedule_id)
+            
+            thread = threading.Thread(target=start_schedule_immediately, daemon=True)
+            thread.start()
+            return True
+        else:
+            logger.info(f"Schedule {schedule_id} not due yet ({current_hour:02d}:{current_minute:02d} vs {schedule_hour:02d}:{schedule_minute:02d})")
+            return False
     
     def remove_schedule(self, schedule_id):
-        """Remove schedule from memory and database"""
+        """Remove schedule from memory and database - ALWAYS stop pump if running"""
+        logger.info(f"Removing schedule: {schedule_id}")
+        
+        # CRITICAL SAFETY: Stop pump if this schedule is running
+        if self.running_schedule_id == schedule_id:
+            logger.warning(f"REMOVING ACTIVE SCHEDULE {schedule_id} - Stopping pump NOW!")
+            self.pump.set_high()
+            self.running_schedule_id = None
+            logger.info("Pump stopped immediately - Level set to HIGH")
+        else:
+            # Check if pump is running anyway (safety check)
+            self._stop_pump_if_running(schedule_id)
+        
         try:
             self.scheduler.remove_job(schedule_id)
+            logger.info(f"  Removed from scheduler")
         except JobLookupError:
-            pass
+            logger.warning(f"  Job not found in scheduler")
         
         if schedule_id in self.schedules:
             del self.schedules[schedule_id]
+            logger.info(f"  Removed from memory")
         
         # Remove from database - need app context
         if self.app:
@@ -220,6 +309,8 @@ class PumpScheduler:
                         db.session.delete(schedule)
                         db.session.commit()
                         logger.info(f"Schedule {schedule_id} deleted from database")
+                    else:
+                        logger.warning(f"  Schedule not found in database")
             except Exception as e:
                 logger.error(f"Error deleting schedule from DB: {e}")
                 db.session.rollback()
@@ -232,14 +323,35 @@ class PumpScheduler:
             logger.warning(f"Schedule {schedule_id} not found")
             return
         
-        if enabled:
-            self.scheduler.resume_job(schedule_id)
-        else:
-            self.scheduler.pause_job(schedule_id)
+        logger.info(f"Toggling schedule {schedule_id} to enabled={enabled}")
         
+        # If disabling and this schedule is running, stop pump immediately
+        if not enabled and self.running_schedule_id == schedule_id:
+            logger.warning(f"DISABLING ACTIVE SCHEDULE {schedule_id} - Stopping pump NOW!")
+            self.pump.set_high()
+            self.running_schedule_id = None
+            logger.info("Pump stopped immediately - Level set to HIGH")
+        elif not enabled:
+            # Check if pump is running (safety check)
+            self._stop_pump_if_running(schedule_id)
+        
+        # Update the enabled state in memory FIRST (before checking)
         self.schedules[schedule_id]['enabled'] = enabled
         
-        # Update database - need app context
+        # If enabling, check if schedule should run NOW
+        if enabled:
+            logger.info(f"Schedule {schedule_id} enabled - Checking if it should run NOW")
+            self._check_and_start_schedule(schedule_id)
+        
+        # Now handle the scheduler job (pause/resume)
+        if enabled:
+            self.scheduler.resume_job(schedule_id)
+            logger.info(f"  Job resumed")
+        else:
+            self.scheduler.pause_job(schedule_id)
+            logger.info(f"  Job paused")
+        
+        # Update database
         if self.app:
             try:
                 with self.app.app_context():
@@ -248,11 +360,20 @@ class PumpScheduler:
                         schedule.enabled = enabled
                         db.session.commit()
                         logger.info(f"Schedule {schedule_id} {'enabled' if enabled else 'disabled'} in database")
+                    else:
+                        logger.warning(f"  Schedule not found in database")
             except Exception as e:
                 logger.error(f"Error updating schedule in DB: {e}")
                 db.session.rollback()
         
         logger.info(f"Schedule {schedule_id} {'enabled' if enabled else 'disabled'}")
+    
+    def emergency_stop_all(self):
+        """Emergency stop - stop any running pump"""
+        logger.warning("EMERGENCY STOP ALL - Stopping pump now!")
+        self.pump.set_high()
+        self.running_schedule_id = None
+        logger.info("Emergency stop complete - Pump stopped")
     
     def get_schedules(self):
         """Get all schedules"""
@@ -264,12 +385,21 @@ class PumpScheduler:
                     local_next_run = job.next_run_time.astimezone(self.local_tz)
                     schedules_info[schedule_id] = {
                         **info,
-                        'next_run_time': local_next_run.strftime('%Y-%m-%d %H:%M:%S')
+                        'next_run_time': local_next_run.strftime('%Y-%m-%d %H:%M:%S'),
+                        'is_running': schedule_id == self.running_schedule_id
                     }
                 else:
-                    schedules_info[schedule_id] = {**info, 'next_run_time': None}
+                    schedules_info[schedule_id] = {
+                        **info, 
+                        'next_run_time': None,
+                        'is_running': schedule_id == self.running_schedule_id
+                    }
             except:
-                schedules_info[schedule_id] = {**info, 'next_run_time': None}
+                schedules_info[schedule_id] = {
+                    **info, 
+                    'next_run_time': None,
+                    'is_running': schedule_id == self.running_schedule_id
+                }
         
         return schedules_info
     
@@ -286,5 +416,7 @@ class PumpScheduler:
         return None
     
     def shutdown(self):
+        """Shutdown scheduler and stop pump"""
+        self.emergency_stop_all()
         self.scheduler.shutdown()
         logger.info("Scheduler shutdown")
