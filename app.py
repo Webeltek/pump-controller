@@ -6,8 +6,11 @@ import logging
 import platform
 import os
 from datetime import datetime
+from dotenv import load_dotenv
+from pathlib import Path
 import threading
 import time
+from command_poller import init_command_poller
 
 # Try to import psutil
 try:
@@ -28,10 +31,18 @@ app = Flask(__name__)
 # For SQLite (no extra setup needed):
 # app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///pump_controller.db'
 # For PostgreSQL (uncomment if you have PostgreSQL):
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'postgresql://willy:your_password@localhost:5432/pump_controller')
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET_KEY', 'your_secret_key')
 
+# Load environment variables from .env before reading config
+dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
+load_dotenv(dotenv_path)
+
+# Check the environment variable; default to development if not set
+env = os.environ.get('FLASK_ENV', 'development')
+
+if env == 'production':
+    app.config.from_object('config.ProductionConfig')
+else:
+    app.config.from_object('config.DevelopmentConfig')
 # Initialize database
 db.init_app(app)
 
@@ -325,6 +336,10 @@ def internal_error(error):
 
 if __name__ == '__main__':
     try:
+        
+        command_poller = init_command_poller(app.config.get('EXPRESS_URL'), app.config.get('POLL_INTERVAL'))
+        command_poller.register_handlers(pump, scheduler)
+        command_poller.start()
         scheduler.start()
         logger.info("Scheduler started successfully")
         logger.info("Starting Flask server on http://0.0.0.0:5000")
