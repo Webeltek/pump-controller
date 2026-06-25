@@ -3,13 +3,11 @@ from pump_controller import PumpController
 from scheduler import PumpScheduler
 from database import db, init_db
 from webhook import init_webhook, push_update, push_immediate
-from command_poller import init_command_poller
+from command_poller import init_command_poller, start_command_poller, stop_command_poller
 import logging
 import platform
 import os
 from datetime import datetime
-from dotenv import load_dotenv
-from pathlib import Path
 import threading
 import time
 
@@ -32,21 +30,12 @@ app = Flask(__name__)
 # For SQLite (no extra setup needed):
 # app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///pump_controller.db'
 # For PostgreSQL (uncomment if you have PostgreSQL):
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'postgresql://willy:your_password@localhost:5432/pump_controller')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET_KEY', 'your_secret_key')
 
-# Load environment variables from .env before reading config
-dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
-load_dotenv(dotenv_path)
-
-# Check the environment variable; default to development if not set
-env = os.environ.get('FLASK_ENV', 'development')
-
-if env == 'production':
-    app.config.from_object('config.ProductionConfig')
-else:
-    app.config.from_object('config.DevelopmentConfig')
 # Initialize database
-init_db(app)
-init_webhook(app.config['EXPRESS_URL'], app=app)
+db.init_app(app)
 
 # Initialize controllers
 pump = PumpController(
@@ -55,6 +44,17 @@ pump = PumpController(
     common_pin=None
 )
 scheduler = PumpScheduler(pump, app=app)
+
+# ===== INITIALIZE WEBHOOK =====
+EXPRESS_URL = os.environ.get('EXPRESS_URL', 'https://your-express-app.com')
+init_webhook(EXPRESS_URL, app=app)
+logger.info(f"Webhook initialized with URL: {EXPRESS_URL}")
+
+# ===== INITIALIZE COMMAND POLLER =====
+POLL_INTERVAL = int(os.environ.get('POLL_INTERVAL', 10))
+command_poller = init_command_poller(EXPRESS_URL, POLL_INTERVAL)
+command_poller.register_handlers(pump, scheduler)
+logger.info(f"Command poller initialized with interval: {POLL_INTERVAL}s")
 
 # Configuration
 app.config.update(
@@ -300,8 +300,29 @@ def set_high():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/pump/emergency', methods=['POST'])
+def emergency_stop():
+    """Emergency stop - immediately stop pump"""
+    try:
+        scheduler.emergency_stop_all()
+        logger.warning("EMERGENCY STOP triggered via API")
+        
+        # Send immediate webhook
+        push_immediate('pump_status', {
+            'running': False,
+            'level': 'HIGH',
+            'level_state': 'HIGH',
+            'source': 'api_emergency_stop'
+        })
+        
+        return jsonify({
+            'success': True, 
+            'message': 'Emergency stop activated - Pump stopped'
+        })
+    except Exception as e:
+        logger.error(f"Emergency stop error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
-# Test endpoint: trigger the pump for a short duration in background (non-blocking)
 @app.route('/api/test/water', methods=['POST'])
 def test_water():
     try:
@@ -352,12 +373,19 @@ def internal_error(error):
 
 if __name__ == '__main__':
     try:
+        # Create tables
+        with app.app_context():
+            db.create_all()
+            logger.info("Database tables ready")
         
-        command_poller = init_command_poller(app.config.get('EXPRESS_URL'), app.config.get('POLL_INTERVAL'))
-        command_poller.register_handlers(pump, scheduler)
-        command_poller.start()
+        # Start the scheduler
         scheduler.start()
         logger.info("Scheduler started successfully")
+        
+        # Start the command poller
+        start_command_poller()
+        logger.info("Command poller started")
+        
         logger.info("Starting Flask server on http://0.0.0.0:5000")
         logger.info("Pump Controller initialized with:")
         logger.info(f"  - Low Level Relay: GPIO {pump.low_pin}")
@@ -367,8 +395,22 @@ if __name__ == '__main__':
         initial_status = pump.get_status()
         logger.info(f"Initial pump status: {initial_status}")
         
+        # Send initial status to Express via webhook
+        push_immediate('full_status', {
+            'pump': {
+                'running': initial_status.get('pump_should_run', False),
+                'water_level': initial_status.get('water_level', 'HIGH'),
+                'level_state': initial_status.get('level_state', 'HIGH')
+            },
+            'schedules': scheduler.get_schedules(),
+            'next_run': scheduler.get_next_run_time(),
+            'system': get_system_info()
+        })
+        logger.info("Initial status sent to Express webhook")
+        
         app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
     except KeyboardInterrupt:
         logger.info("Shutting down...")
+        stop_command_poller()
         scheduler.shutdown()
         pump.cleanup()

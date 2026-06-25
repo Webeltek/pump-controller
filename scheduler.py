@@ -8,6 +8,7 @@ import pytz
 import subprocess
 import time
 from database import db, WateringSchedule
+from webhook import push_immediate, push_update
 
 logger = logging.getLogger(__name__)
 
@@ -185,6 +186,15 @@ class PumpScheduler:
         else:
             logger.warning("No app context, schedule not saved to database")
         
+        # Send webhook - schedule added
+        schedules = self.get_schedules()
+        next_run = self.get_next_run_time()
+        push_immediate('schedule_added', {
+            'schedule_id': schedule_id,
+            'schedules': schedules,
+            'next_run': next_run
+        })
+        
         logger.info(f"Schedule {schedule_id}: Water at {hour:02d}:{minute:02d} for {duration_seconds}s")
         return schedule_id
     
@@ -198,20 +208,44 @@ class PumpScheduler:
         try:
             # Start filling (pump on)
             self.pump.set_low()
-            logger.info(f"Pump started - Water level set to LOW (Schedule: {schedule_id})")
+            logger.info(f"Pump started - Water level set to LOW")
+            
+            # Send webhook - schedule started
+            push_immediate('schedule_started', {
+                'schedule_id': schedule_id,
+                'duration': duration_seconds,
+                'running': True
+            })
             
             # Run for specified duration
             time.sleep(duration_seconds)
             
             # Stop filling (pump off)
             self.pump.set_high()
-            logger.info(f"SCHEDULE COMPLETE: Watering finished - Pump stopped (HIGH) (Schedule: {schedule_id})")
+            logger.info(f"SCHEDULE COMPLETE: Watering finished - Pump stopped")
+            
+            # Send webhook - schedule completed
+            schedules = self.get_schedules()
+            next_run = self.get_next_run_time()
+            push_immediate('schedule_completed', {
+                'schedule_id': schedule_id,
+                'duration': duration_seconds,
+                'running': False,
+                'schedules': schedules,
+                'next_run': next_run
+            })
             
         except Exception as e:
             logger.error(f"Error during watering job {schedule_id}: {e}")
             # Ensure pump stops on error
             self.pump.set_high()
-            logger.info(f"Pump stopped due to error (Schedule: {schedule_id})")
+            logger.info(f"Pump stopped due to error")
+            
+            # Send webhook - error
+            push_immediate('error', {
+                'schedule_id': schedule_id,
+                'error': str(e)
+            })
         finally:
             # Clear running schedule
             self.running_schedule_id = None
@@ -227,6 +261,15 @@ class PumpScheduler:
             self.pump.set_high()
             self.running_schedule_id = None
             logger.info("Pump stopped - Level set to HIGH")
+            
+            # Send webhook - pump stopped
+            push_immediate('pump_status', {
+                'running': False,
+                'level': 'HIGH',
+                'level_state': 'HIGH',
+                'source': 'stop_pump_if_running',
+                'schedule_id': schedule_id
+            })
             return True
         else:
             logger.info(f"No pump running to stop (schedule {schedule_id})")
@@ -286,6 +329,15 @@ class PumpScheduler:
             self.pump.set_high()
             self.running_schedule_id = None
             logger.info("Pump stopped immediately - Level set to HIGH")
+            
+            # Send webhook - emergency stop from removal
+            push_immediate('pump_status', {
+                'running': False,
+                'level': 'HIGH',
+                'level_state': 'HIGH',
+                'source': 'schedule_removed',
+                'schedule_id': schedule_id
+            })
         else:
             # Check if pump is running anyway (safety check)
             self._stop_pump_if_running(schedule_id)
@@ -315,6 +367,15 @@ class PumpScheduler:
                 logger.error(f"Error deleting schedule from DB: {e}")
                 db.session.rollback()
         
+        # Send webhook - schedule deleted
+        schedules = self.get_schedules()
+        next_run = self.get_next_run_time()
+        push_immediate('schedule_deleted', {
+            'schedule_id': schedule_id,
+            'schedules': schedules,
+            'next_run': next_run
+        })
+        
         logger.info(f"Schedule {schedule_id} removed")
     
     def toggle_schedule(self, schedule_id, enabled):
@@ -331,6 +392,15 @@ class PumpScheduler:
             self.pump.set_high()
             self.running_schedule_id = None
             logger.info("Pump stopped immediately - Level set to HIGH")
+            
+            # Send webhook - pump stopped from disable
+            push_immediate('pump_status', {
+                'running': False,
+                'level': 'HIGH',
+                'level_state': 'HIGH',
+                'source': 'schedule_disabled',
+                'schedule_id': schedule_id
+            })
         elif not enabled:
             # Check if pump is running (safety check)
             self._stop_pump_if_running(schedule_id)
@@ -342,6 +412,26 @@ class PumpScheduler:
         if enabled:
             logger.info(f"Schedule {schedule_id} enabled - Checking if it should run NOW")
             self._check_and_start_schedule(schedule_id)
+            
+            # Send webhook - schedule enabled
+            schedules = self.get_schedules()
+            next_run = self.get_next_run_time()
+            push_immediate('schedule_enabled', {
+                'schedule_id': schedule_id,
+                'enabled': True,
+                'schedules': schedules,
+                'next_run': next_run
+            })
+        else:
+            # Send webhook - schedule disabled
+            schedules = self.get_schedules()
+            next_run = self.get_next_run_time()
+            push_immediate('schedule_disabled', {
+                'schedule_id': schedule_id,
+                'enabled': False,
+                'schedules': schedules,
+                'next_run': next_run
+            })
         
         # Now handle the scheduler job (pause/resume)
         if enabled:
@@ -374,6 +464,14 @@ class PumpScheduler:
         self.pump.set_high()
         self.running_schedule_id = None
         logger.info("Emergency stop complete - Pump stopped")
+        
+        # Send webhook - emergency stop
+        push_immediate('pump_status', {
+            'running': False,
+            'level': 'HIGH',
+            'level_state': 'HIGH',
+            'source': 'emergency_stop_all'
+        })
     
     def get_schedules(self):
         """Get all schedules"""
