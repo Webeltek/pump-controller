@@ -3,8 +3,8 @@ import requests
 import threading
 import time
 import logging
-from datetime import datetime
-from webhook import push_immediate, push_update
+from datetime import datetime, timezone
+from webhook import push_immediate
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +23,12 @@ class CommandPoller:
         
         logger.info(f"Command poller initialized with URL: {express_url}")
     
-    def register_handlers(self, pump_controller, scheduler):
+    def register_handlers(self, pump_controller, scheduler, get_system_info):
         """Register pump and scheduler for command execution"""
         self.pump_controller = pump_controller
         self.scheduler = scheduler
-        
+        self.get_system_info = get_system_info
+
         # Register command handlers
         self.command_handlers = {
             'pump_on': self._handle_pump_on,
@@ -36,7 +37,7 @@ class CommandPoller:
             'add_schedule': self._handle_add_schedule,
             'delete_schedule': self._handle_delete_schedule,
             'toggle_schedule': self._handle_toggle_schedule,
-            'get_status': self._handle_get_status
+            'react_initial_full_status': self._handle_get_react_initial_full_status,
         }
     
     def start(self):
@@ -121,7 +122,7 @@ class CommandPoller:
                     'id': command_id,
                     'success': success,
                     'result': result,
-                    'timestamp': datetime.utcnow().isoformat()
+                    'timestamp': datetime.now(timezone.utc).isoformat()
                 },
                 timeout=5,
                 headers={'X-Device-ID': 'pump-controller-001'}
@@ -248,10 +249,23 @@ class CommandPoller:
         
         return {'schedule_id': schedule_id, 'enabled': enabled}
     
-    def _handle_get_status(self, data):
+    def _handle_get_react_initial_full_status(self, data):
         """Handle get status command"""
-        logger.info("Handling get_status command")
-        return {'status': 'pong', 'time': datetime.utcnow().isoformat()}
+        initial_status = self.pump_controller.get_status()
+        logger.info(f"Initial pump status: {initial_status}")
+
+        # Send initial status to Express via webhook
+        push_immediate('full_status', {
+            'pump': {
+                'running': initial_status.get('pump_should_run', False),
+                'water_level': initial_status.get('water_level', 'HIGH'),
+                'level_state': initial_status.get('level_state', 'HIGH')
+            },
+            'schedules': self.scheduler.get_schedules(),
+            'next_run': self.scheduler.get_next_run_time(),
+            'system': self.get_system_info()
+        })
+        return {'react_initial_full_status': 'pong', 'time': datetime.now(timezone.utc).isoformat()}
 
 
 

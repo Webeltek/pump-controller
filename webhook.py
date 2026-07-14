@@ -144,11 +144,6 @@ def init_webhook(webhook_url, app=None):
     webhook_client = WebhookClient(webhook_url, app)
     return webhook_client
 
-def push_update(event_type, data):
-    """Convenience function to push updates"""
-    if webhook_client:
-        webhook_client.send_update(event_type, data)
-
 def push_immediate(event_type, data):
     """Convenience function for immediate updates"""
     if webhook_client:

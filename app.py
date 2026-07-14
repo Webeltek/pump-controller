@@ -2,7 +2,7 @@ from flask import Flask, render_template, jsonify, request
 from pump_controller import PumpController
 from scheduler import PumpScheduler
 from database import db, init_db
-from webhook import init_webhook, push_update, push_immediate
+from webhook import init_webhook, push_immediate
 from command_poller import init_command_poller
 import logging
 import platform
@@ -354,7 +354,7 @@ if __name__ == '__main__':
     try:
         
         command_poller = init_command_poller(app.config.get('EXPRESS_URL'), app.config.get('POLL_INTERVAL'))
-        command_poller.register_handlers(pump, scheduler)
+        command_poller.register_handlers(pump, scheduler,get_system_info)
         command_poller.start()
         scheduler.start()
         logger.info("Scheduler started successfully")
@@ -366,6 +366,18 @@ if __name__ == '__main__':
         # Log initial status
         initial_status = pump.get_status()
         logger.info(f"Initial pump status: {initial_status}")
+
+        # Send initial status to Express via webhook
+        push_immediate('full_status', {
+            'pump': {
+                'running': initial_status.get('pump_should_run', False),
+                'water_level': initial_status.get('water_level', 'HIGH'),
+                'level_state': initial_status.get('level_state', 'HIGH')
+            },
+            'schedules': scheduler.get_schedules(),
+            'next_run': scheduler.get_next_run_time(),
+            'system': get_system_info()
+        })
         
         app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
     except KeyboardInterrupt:

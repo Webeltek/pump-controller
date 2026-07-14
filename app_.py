@@ -2,7 +2,7 @@ from flask import Flask, render_template, jsonify, request
 from pump_controller import PumpController
 from scheduler import PumpScheduler
 from database import db, init_db
-from webhook import init_webhook, push_update, push_immediate
+from webhook import init_webhook, push_immediate
 from command_poller import init_command_poller, start_command_poller, stop_command_poller
 import logging
 import platform

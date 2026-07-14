@@ -4,7 +4,7 @@ import threading
 import time
 import logging
 from datetime import datetime
-from webhook import push_immediate, push_update
+from webhook import push_immediate
 
 logger = logging.getLogger(__name__)
 

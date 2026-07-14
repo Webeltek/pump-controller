@@ -8,7 +8,7 @@ import pytz
 import subprocess
 import time
 from database import db, WateringSchedule
-from webhook import push_immediate, push_update
+from webhook import push_immediate
 
 logger = logging.getLogger(__name__)
 
