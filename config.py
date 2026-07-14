@@ -13,6 +13,11 @@ class DevelopmentConfig(Config):
     TESTING = False
     SQLALCHEMY_DATABASE_URI = os.environ.get('DEV_DATABASE_URL', 'sqlite:///dev.db')
     EXPRESS_URL = os.environ.get('DEV_EXPRESS_URL')  # Local Express server for development
+    WEBHOOK_URLS = [
+        url.strip()
+        for url in [os.environ.get('DEV_EXPRESS_URL'), os.environ.get('EXPRESS_URL')]
+        if url and url.strip()
+    ]
 
 class ProductionConfig(Config):
     """Live production configuration."""

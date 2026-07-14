@@ -47,7 +47,7 @@ scheduler = PumpScheduler(pump, app=app)
 
 # ===== INITIALIZE WEBHOOK =====
 EXPRESS_URL = os.environ.get('EXPRESS_URL', 'https://your-express-app.com')
-init_webhook(EXPRESS_URL, app=app)
+init_webhook(os.environ.get('WEBHOOK_URLS', [EXPRESS_URL]), app=app)
 logger.info(f"Webhook initialized with URL: {EXPRESS_URL}")
 
 # ===== INITIALIZE COMMAND POLLER =====

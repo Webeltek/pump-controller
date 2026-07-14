@@ -46,7 +46,7 @@ else:
     app.config.from_object('config.DevelopmentConfig')
 # Initialize database
 init_db(app)
-init_webhook(app.config['EXPRESS_URL'], app=app)
+init_webhook(app.config.get('WEBHOOK_URLS', app.config.get('EXPRESS_URL')), app=app)
 
 # Initialize controllers
 pump = PumpController(

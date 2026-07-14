@@ -7,14 +7,31 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+
+def _normalize_webhook_urls(webhook_urls):
+    """Normalize webhook URLs into a list of clean endpoint roots."""
+    if webhook_urls is None:
+        return []
+
+    if isinstance(webhook_urls, str):
+        items = [part.strip() for part in webhook_urls.split(',') if part.strip()]
+    elif isinstance(webhook_urls, (list, tuple, set)):
+        items = [str(url).strip() for url in webhook_urls if str(url).strip()]
+    else:
+        items = [str(webhook_urls).strip()] if str(webhook_urls).strip() else []
+
+    return [item.rstrip('/') for item in items if item]
+
+
 class WebhookClient:
     """
     Pushes updates from Flask to external React/Express app
     """
     def __init__(self, webhook_url, app=None):
-        self.webhook_url = webhook_url.rstrip('/')
+        self.webhook_urls = _normalize_webhook_urls(webhook_url)
+        self.webhook_url = self.webhook_urls[0] if self.webhook_urls else None
         self.app = app
-        self.enabled = bool(webhook_url)
+        self.enabled = bool(self.webhook_urls)
         self.pending_updates = []
         self.last_push_time = 0
         self.min_push_interval = 2  # seconds between pushes
@@ -22,7 +39,7 @@ class WebhookClient:
         self.last_pump_state = None  # Track last state to avoid duplicates
         
         if self.enabled:
-            logger.info(f"Webhook client initialized with URL: {webhook_url}")
+            logger.info(f"Webhook client initialized with URLs: {self.webhook_urls}")
         else:
             logger.warning("Webhook client disabled - no URL configured")
     
@@ -85,22 +102,23 @@ class WebhookClient:
             'updates': self.pending_updates.copy()
         }
         
-        try:
-            response = requests.post(
-                f"{self.webhook_url}/webhook/pump-status",
-                json=payload,
-                timeout=5
-            )
-            
-            if response.status_code == 200:
-                self.pending_updates = []
-                self.last_push_time = now
-                logger.info(f"Sent {len(payload['updates'])} updates to webhook")
-            else:
-                logger.warning(f"Webhook failed: {response.status_code}")
+        for webhook_url in self.webhook_urls:
+            try:
+                response = requests.post(
+                    f"{webhook_url}/webhook/pump-status",
+                    json=payload,
+                    timeout=5
+                )
                 
-        except Exception as e:
-            logger.error(f"Webhook error: {e}")
+                if response.status_code == 200:
+                    self.pending_updates = []
+                    self.last_push_time = now
+                    logger.info(f"Sent {len(payload['updates'])} updates to webhook: {webhook_url}")
+                else:
+                    logger.warning(f"Webhook failed for {webhook_url}: {response.status_code}")
+                    
+            except Exception as e:
+                logger.error(f"Webhook error for {webhook_url}: {e}")
     
     def send_immediate(self, event_type, data):
         """Send an immediate update (bypasses batching)"""
@@ -122,18 +140,19 @@ class WebhookClient:
             'data': data
         }
         
-        try:
-            response = requests.post(
-                f"{self.webhook_url}/webhook/pump-status",
-                json=payload,
-                timeout=5
-            )
-            if response.status_code == 200:
-                logger.info(f"Immediate update sent: {event_type}")
-            else:
-                logger.warning(f"Immediate update failed: {response.status_code}")
-        except Exception as e:
-            logger.error(f"Immediate update error: {e}")
+        for webhook_url in self.webhook_urls:
+            try:
+                response = requests.post(
+                    f"{webhook_url}/webhook/pump-status",
+                    json=payload,
+                    timeout=5
+                )
+                if response.status_code == 200:
+                    logger.info(f"Immediate update sent: {event_type} -> {webhook_url}")
+                else:
+                    logger.warning(f"Immediate update failed for {webhook_url}: {response.status_code}")
+            except Exception as e:
+                logger.error(f"Immediate update error for {webhook_url}: {e}")
 
 # Global webhook client
 webhook_client = None
