@@ -2,7 +2,7 @@ import os
 from google import genai
 from google.genai import types
 
-client = genai.Client(api_key="AIzaSyBPlsivYK6xrZPqBMeWw6GyWF8w4xvSZgU")
+client = genai.Client(api_key=os.env.get("GOOGLE_GENAI_API_KEY"))
 
 EXCLUDE_DIRS = {'.git', '__pycache__', 'node_modules', '.venv', 'venv', 'dist', 'build'}
 ALLOWED_EXTENSIONS = {'.py', '.js', '.ts', '.tsx', '.json', '.html', '.css', '.md', '.go', '.rs'}
