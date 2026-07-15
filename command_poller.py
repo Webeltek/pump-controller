@@ -4,7 +4,7 @@ import threading
 import time
 import logging
 from datetime import datetime, timezone
-from webhook import push_immediate
+from webhook import push_immediate, _normalize_webhook_urls
 
 logger = logging.getLogger(__name__)
 
@@ -12,8 +12,9 @@ class CommandPoller:
     """
     Polls Express server for pending commands
     """
-    def __init__(self, express_url, poll_interval=10):
-        self.express_url = express_url.rstrip('/')
+    def __init__(self, webhook_urls, poll_interval=10):
+        self.webhook_urls = _normalize_webhook_urls(webhook_urls)
+        self.webhook_url = self.webhook_urls[0] if self.webhook_urls else None
         self.poll_interval = poll_interval
         self.running = False
         self.thread = None
@@ -21,7 +22,7 @@ class CommandPoller:
         self.scheduler = None
         self.command_handlers = {}
         
-        logger.info(f"Command poller initialized with URL: {express_url}")
+        logger.info(f"Command poller initialized with URL: {webhook_urls}")
     
     def register_handlers(self, pump_controller, scheduler, get_system_info):
         """Register pump and scheduler for command execution"""
@@ -69,29 +70,30 @@ class CommandPoller:
     
     def _poll_for_commands(self):
         """Poll Express for pending commands"""
-        try:
-            response = requests.get(
-                f"{self.express_url}/commands/pending",
-                timeout=5,
-                headers={'X-Device-ID': 'pump-controller-001'}
-            )
-            
-            if response.status_code == 200:
-                commands = response.json().get('commands', [])
-                if commands:
-                    logger.info(f"Received {len(commands)} command(s)")
-                    for command in commands:
-                        self._execute_command(command)
-            elif response.status_code == 204:
-                # No pending commands
-                pass
-            else:
-                logger.warning(f"Poll failed: {response.status_code}")
+        for webhook_url in self.webhook_urls:
+            try:
+                response = requests.get(
+                    f"{self.webhook_url}/commands/pending",
+                    timeout=5,
+                    headers={'X-Device-ID': 'pump-controller-001'}
+                )
                 
-        except requests.exceptions.Timeout:
-            logger.debug("Poll timeout - no commands pending")
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Poll request error: {e}")
+                if response.status_code == 200:
+                    commands = response.json().get('commands', [])
+                    if commands:
+                        logger.info(f"Received {len(commands)} command(s)")
+                        for command in commands:
+                            self._execute_command(command)
+                elif response.status_code == 204:
+                    # No pending commands
+                    pass
+                else:
+                    logger.warning(f"Poll failed: {response.status_code}")
+                    
+            except requests.exceptions.Timeout:
+                logger.debug("Poll timeout - no commands pending")
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Poll request error: {e}")
     
     def _execute_command(self, command):
         """Execute a command from Express"""
@@ -115,24 +117,25 @@ class CommandPoller:
     
     def _report_command_result(self, command_id, success, result):
         """Report command result back to Express"""
-        try:
-            response = requests.post(
-                f"{self.express_url}/commands/result",
-                json={
-                    'id': command_id,
-                    'success': success,
-                    'result': result,
-                    'timestamp': datetime.now(timezone.utc).isoformat()
-                },
-                timeout=5,
-                headers={'X-Device-ID': 'pump-controller-001'}
-            )
-            if response.status_code == 200:
-                logger.info(f"Command result reported: {command_id} -> {'OK' if success else 'FAIL'}")
-            else:
-                logger.warning(f"Failed to report command result: {response.status_code}")
-        except Exception as e:
-            logger.error(f"Error reporting command result: {e}")
+        for webhook_url in self.webhook_urls:
+            try:
+                response = requests.post(
+                    f"{self.webhook_url}/commands/result",
+                    json={
+                        'id': command_id,
+                        'success': success,
+                        'result': result,
+                        'timestamp': datetime.now(timezone.utc).isoformat()
+                    },
+                    timeout=5,
+                    headers={'X-Device-ID': 'pump-controller-001'}
+                )
+                if response.status_code == 200:
+                    logger.info(f"Command result reported: {command_id} -> {'OK' if success else 'FAIL'}")
+                else:
+                    logger.warning(f"Failed to report command result: {response.status_code}")
+            except Exception as e:
+                logger.error(f"Error reporting command result: {e}")
     
     # ===== Command Handlers =====
     
@@ -272,8 +275,8 @@ class CommandPoller:
 # Global poller instance
 command_poller = None
 
-def init_command_poller(express_url, poll_interval=10):
+def init_command_poller(webhook_urls, poll_interval=10):
     """Initialize the command poller"""
     global command_poller
-    command_poller = CommandPoller(express_url, poll_interval)
+    command_poller = CommandPoller(webhook_urls, poll_interval)
     return command_poller

@@ -46,7 +46,7 @@ else:
     app.config.from_object('config.DevelopmentConfig')
 # Initialize database
 init_db(app)
-init_webhook(app.config.get('WEBHOOK_URLS', app.config.get('EXPRESS_URL')), app=app)
+webhook_client = init_webhook(app.config.get('WEBHOOK_URLS', app.config.get('EXPRESS_URL')), app=app)
 
 # Initialize controllers
 pump = PumpController(
@@ -353,7 +353,7 @@ def internal_error(error):
 if __name__ == '__main__':
     try:
         
-        command_poller = init_command_poller(app.config.get('EXPRESS_URL'), app.config.get('POLL_INTERVAL'))
+        command_poller = init_command_poller(webhook_client.webhook_urls, app.config.get('POLL_INTERVAL'))
         command_poller.register_handlers(pump, scheduler,get_system_info)
         command_poller.start()
         scheduler.start()
