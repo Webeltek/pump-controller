@@ -73,7 +73,7 @@ class CommandPoller:
         for webhook_url in self.webhook_urls:
             try:
                 response = requests.get(
-                    f"{self.webhook_url}/commands/pending",
+                    f"{webhook_url}/commands/pending",
                     timeout=5,
                     headers={'X-Device-ID': 'pump-controller-001'}
                 )
@@ -120,7 +120,7 @@ class CommandPoller:
         for webhook_url in self.webhook_urls:
             try:
                 response = requests.post(
-                    f"{self.webhook_url}/commands/result",
+                    f"{webhook_url}/commands/result",
                     json={
                         'id': command_id,
                         'success': success,
